@@ -20,6 +20,20 @@
   (push-mark point2 nil t)
   (setq mark-active t))
 
+(defun emmo-skip-whitespaces-forward (&optional n)
+  (interactive)
+  "Search forward, but keep point at the beginning of the match."
+  (when (re-search-forward "[^[:space:]\n]" nil t n)
+    (goto-char (match-beginning 0)))
+  )
+
+(defun emmo-skip-whitespaces-backward (&optional n)
+  (interactive)
+  "Search backward, but keep point at the beginning of the match."
+  (when (re-search-backward "[^[:space:]\n]" nil t n)
+    (goto-char (match-end 0)))
+  )
+
 (defun mark-inside* (yank? search-forward-char)
   "Works like vim's ci command. Takes a char, like ( or \" and
 kills the innards of the first ancestor semantic unit starting with that char."
@@ -148,92 +162,45 @@ is an upper-case character."
   (interactive)
   (let ((bounds (bounds-of-thing-at-point 'whitespace)))
     (when bounds
-      (goto-char (car bounds))
-      (set-mark (cdr bounds))
-      (setq mark-active t)))
+      (select-region-between-points (car bounds) (cdr bounds))
+      )
+    )
   )
 
 ;; todo: currenly marks inside word
 (defun emmo-mark-around-word (&optional n)
-  "Mark the inside word at the current point."
+  "Mark the around word at the current point."
   (interactive)
   (let ((bounds (bounds-of-thing-at-point 'word)))
     (when bounds
-      (goto-char (car bounds))
-      (set-mark (cdr bounds))
-      (setq mark-active t))))
+      (select-region-between-points (car bounds) (cdr bounds))
+      )
+    )
+  )
 
 (defun emmo-mark-around-symbol (&optional n)
-  "Mark the inside symbol at the current point."
+  "Mark the around symbol at the current point."
   (interactive)
   (let ((bounds (bounds-of-thing-at-point 'symbol)))
     (when bounds
-      (goto-char (car bounds))
-      (set-mark (cdr bounds))
-      (setq mark-active t))))
+      (select-region-between-points (car bounds) (cdr bounds))
+      )
+    )
+  )
 
 (defun emmo-mark-around-line (&optional n)
-  "Mark the around current line N times."
-  (interactive "p")
-  (beginning-of-line)
-  (set-mark (point))
-  (end-of-line)
-  (forward-char)
-  (setq mark-active t)
-  (exchange-point-and-mark)
-  )
-
-(defun emmo-mark-till-end-of-line (&optional n)
-  (interactive "p")
-  (let ((cur (point)))
-    (emmo-mark-inside-line)
-    (goto-char cur)
+  (interactive)
+  (let ((bounds (bounds-of-thing-at-point 'line)))
+    (when bounds
+      (select-region-between-points (car bounds) (cdr bounds))
+      )
     )
   )
-
-(defun emmo-mark-from-beg-of-line (&optional n)
-  (interactive "p")
-  (let ((cur (point)))
-    (emmo-mark-inside-line)
-    (exchange-point-and-mark)
-    (goto-char cur)
-    )
-  )
-
-(defun emmo-move-to-end-of-line (&optional n)
-  (interactive "p")
-  (let ((cur (point)))
-    (emmo-mark-inside-line)
-    (exchange-point-and-mark)
-    (keyboard-escape-quit)
-    )
-  )
-
-(defun emmo-move-to-beg-of-line (&optional n)
-  (interactive "p")
-  (let ((cur (point)))
-    (emmo-mark-inside-line)
-    (keyboard-escape-quit)
-    )
-  )
-
-;; (defun emmo-mark-inside-paragraph (&optional n)
-;;   "Mark the inside paragraph at point N times."
-;;   (interactive "p")
-;;   (mark-paragraph n)
-;;   (forward-line)
-;;   )
 
 (defun emmo-mark-around-paragraph (&optional n)
-  "Mark the inside paragraph at point N times."
+  "Mark around paragraph at point N times."
   (interactive "p")
   (mark-paragraph n)
-  )
-
-(defun emmo-mark-inside-round-bracket (&optional n)
-  "Mark the text inside round brackets at point N times."
-  (interactive)
-  (mark-inside* nil "(")
   )
 
 (defun emmo-mark-around-round-bracket (&optional n)
@@ -242,22 +209,10 @@ is an upper-case character."
   (mark-around* nil "(")
   )
 
-(defun emmo-mark-inside-square-bracket (&optional n)
-  "Mark the text inside square brackets at point N times."
-  (interactive)
-  (mark-inside* nil "[")
-  )
-
 (defun emmo-mark-around-square-bracket (&optional n)
   "Kill the function at point."
   (interactive)
   (mark-around* nil "[")
-  )
-
-(defun emmo-mark-inside-curly-bracket (&optional n)
-  "Kill the function at point."
-  (interactive)
-  (mark-inside* nil "{")
   )
 
 (defun emmo-mark-around-curly-bracket (&optional n)
@@ -266,41 +221,22 @@ is an upper-case character."
   (mark-around* nil "{")
   )
 
-(defun emmo-mark-inside-angle-bracket (&optional n)
-  "Kill the function at point."
-  (interactive)
-  (mark-inside* nil "<")
-  )
-
 (defun emmo-mark-around-angle-bracket (&optional n)
   "Kill the function at point."
   (interactive)
   (mark-around* nil "<")
   )
 
-(defun emmo-mark-inside-single-quote (&optional n)
+(defun emmo-mark-around-single-quote (&optional n)
   "Kill the function at point."
   (interactive)
-  (mark-inside* nil "-")
-  )
-
-(defun emmo-mark-inside-double-quote (&optional n)
-  "Kill the function at point."
-  (interactive)
-  (mark-inside* nil "\"")
+  (mark-around* nil "-")
   )
 
 (defun emmo-mark-around-double-quote (&optional n)
   "Kill the function at point."
   (interactive)
   (mark-around* nil "\"")
-  )
-
-(defun emmo-mark-inside-function (&optional n)
-  "Kill the function at point."
-  (interactive)
-  (mark-defun)
-  (forward-line)
   )
 
 (defun emmo-mark-around-function (&optional n)
@@ -475,21 +411,27 @@ If N is not provided, mark the first parameter."
     (cond
      ;; inside
      ((eq scope 'inside)
-      (re-search-forward "[^[:space:]]" nil t)
-      (exchange-point-and-mark)
-      (re-search-backward "[^[:space:]]" nil t)
-      (exchange-point-and-mark)
+      (if (member object '(word symbol))
+          ;; do nothing for now, word and symbol need special processing
+          (ignore)
+        (progn
+          (emmo-skip-whitespaces-forward)
+          (exchange-point-and-mark)
+          (emmo-skip-whitespaces-backward)
+          (exchange-point-and-mark)
+          )
+        )
       )
      ;; beggining
      ((eq scope 'beg)
-      (re-search-forward "[^[:space:]]" nil t)
+      (emmo-skip-whitespaces-forward)
       (set-mark cur)
       (exchange-point-and-mark)
       )
      ;; end
      ((eq scope 'end)
       (exchange-point-and-mark)
-      (re-search-backward "[^[:space:]]" nil t)
+      (emmo-skip-whitespaces-backward)
       (exchange-point-and-mark)
       (goto-char cur)
       )
@@ -522,10 +464,12 @@ If N is not provided, mark the first parameter."
       (goto-line current-line)
       (indent-for-tab-command)
       )
+     ;; go
      ((eq action 'go)
       (exchange-point-and-mark)
       (keyboard-escape-quit)
       )
+     ;; surround
      ((eq action 'surround)
       (let ((mark-point (mark)))
         (keyboard-escape-quit)

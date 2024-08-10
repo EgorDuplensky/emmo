@@ -1,0 +1,5 @@
+#+title: emmo - EMacs MOtions
+#+author: Egor Duplensky
+#+language: en
+
+* Work in progress
