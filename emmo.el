@@ -20,52 +20,61 @@
   (push-mark point2 nil t)
   (setq mark-active t))
 
-(defun emmo-skip-whitespaces-forward (&optional n)
+(defun emmo-skip-whitespaces-forward (stop-after &optional n)
   (interactive)
   "Search forward, but keep point at the beginning of the match."
   (when (re-search-forward "[^[:space:]\n]" nil t n)
-    (goto-char (match-beginning 0)))
+    (when (not stop-after)
+      (goto-char (match-beginning 0))
+      )
+    )
   )
 
-(defun emmo-skip-whitespaces-backward (&optional n)
+(defun emmo-skip-whitespaces-backward (stop-after &optional n)
   (interactive)
   "Search backward, but keep point at the beginning of the match."
   (when (re-search-backward "[^[:space:]\n]" nil t n)
-    (goto-char (match-end 0)))
+    (when (not stop-after)
+      (goto-char (match-end 0))
+      )
+    )
   )
 
-(defun mark-inside* (yank? search-forward-char)
+(defun emmo-find-opening-char (char closing-char count)
+  (message "looking for %c or %c. count : %d" char closing-char count)
+  (let ((regexp (format "[%c%c]" char closing-char)))
+    (re-search-backward regexp nil t)
+    (setq matched-char (char-after (match-beginning 0)))
+    (if (eq matched-char closing-char)
+        (setq count (+ count 1))
+      (setq count (- count 1)))
+    (when (not (eq count 0))
+      (emmo-find-opening-char char closing-char count)
+      )
+    )
+  )
+
+(defun emmo-mark-around* (yank? search-forward-char)
   "Works like vim's ci command. Takes a char, like ( or \" and
-kills the innards of the first ancestor semantic unit starting with that char."
+kills the first ancestor semantic unit starting with that char."
   (let* ((expand-region-fast-keys-enabled nil)
          (expand-region-smart-cursor nil)
          (char (or search-forward-char
-                   (char-to-string
-                    (read-char
-                     (if yank?
-                         "Yank inside, starting with:"
-                       "Change inside, starting with:")))))
-         (q-char (regexp-quote char))
-         (starting-point (point)))
-    (cl-flet ((message (&rest args) nil))
-      (er--expand-region-1)
-      (er--expand-region-1)
-      (while (and (not (= (point) (point-min)))
-                  (not (looking-at q-char)))
-        (er--expand-region-1))
-      (if (not (looking-at q-char))
-          (if search-forward-char
-              (error "Couldn't find any expansion starting with %S" char)
-            (goto-char starting-point)
-            (setq mark-active nil)
-            (change-inside* yank? char))
-        (er/contract-region 1)
-        (if yank?
-            (progn
-              (copy-region-as-kill (region-beginning) (region-end))
-              (ci--flash-region (region-beginning) (region-end))
-              (goto-char starting-point))
-          (select-region-between-points (region-beginning) (region-end)))))))
+                   (read-char
+                    (if yank?
+                        "Yank around, starting with:"
+                      "Change around, starting with:"))))
+         (starting-point (point))
+         (closing-char (emmo-matching-pair-char char))
+         )
+    (emmo-find-opening-char char closing-char 1)
+    )
+  )
+
+(defun emmo-find-openining-round ()
+  (interactive)
+    (emmo-mark-around* nil ?\( )
+    )
 
 (defun mark-around* (yank? search-forward-char)
   "Works like vim's ci command. Takes a char, like ( or \" and
@@ -80,8 +89,8 @@ kills the first ancestor semantic unit starting with that char."
                        "Change around, starting with:")))))
          (q-char (regexp-quote char))
          (starting-point (point)))
-    ;; (when search-forward-char
-    ;;   (search-forward char (point-at-eol)))
+    (when search-forward-char
+      (search-forward char nil))
     (cl-flet ((message (&rest args) nil))
       (when (looking-at q-char)
         (er/expand-region 1))
@@ -171,9 +180,16 @@ is an upper-case character."
 (defun emmo-mark-around-word (&optional n)
   "Mark the around word at the current point."
   (interactive)
+  (unless n (setq n 1))
   (let ((bounds (bounds-of-thing-at-point 'word)))
     (when bounds
-      (select-region-between-points (car bounds) (cdr bounds))
+      (goto-char (car bounds))
+      (emmo-skip-whitespaces-backward nil)
+      ;; (forward-word)
+      (let ((beg (point)))
+        (forward-word n)
+        (select-region-between-points beg (point))
+        )
       )
     )
   )
@@ -183,7 +199,12 @@ is an upper-case character."
   (interactive)
   (let ((bounds (bounds-of-thing-at-point 'symbol)))
     (when bounds
-      (select-region-between-points (car bounds) (cdr bounds))
+      (goto-char (car bounds))
+      (emmo-skip-whitespaces-backward nil)
+      (let ((beg (point)))
+        (forward-symbol n)
+        (select-region-between-points beg (point))
+        )
       )
     )
   )
@@ -192,7 +213,11 @@ is an upper-case character."
   (interactive)
   (let ((bounds (bounds-of-thing-at-point 'line)))
     (when bounds
-      (select-region-between-points (car bounds) (cdr bounds))
+      (goto-char (car bounds))
+      (let ((beg (point)))
+        (forward-line n)
+        (select-region-between-points beg (point))
+        )
       )
     )
   )
@@ -343,6 +368,7 @@ If N is not provided, mark the first parameter."
     (paragraph      . "p")
     (argument       . "a")
     (function       . "d") ;; defun
+    (white-space    . "SPC")
     ;;(till         . "t")
     ;;(find         . "f")
     ;;(till-backward . "T")
@@ -411,27 +437,37 @@ If N is not provided, mark the first parameter."
     (cond
      ;; inside
      ((eq scope 'inside)
-      (if (member object '(word symbol))
-          ;; do nothing for now, word and symbol need special processing
-          (ignore)
+      (cond
+       ;; ((member object '(word symbol))
+       ;;  ;; do nothing for now, word and symbol need special processing
+       ;;  (ignore))
+       ((member object '(round-bracket square-bracket curly-bracket angle-bracket single-quote double-quote))
+        ;; do nothing for now, word and symbol need special processing
         (progn
-          (emmo-skip-whitespaces-forward)
+          (emmo-skip-whitespaces-forward t)
           (exchange-point-and-mark)
-          (emmo-skip-whitespaces-backward)
+          (emmo-skip-whitespaces-backward t)
           (exchange-point-and-mark)
-          )
-        )
+          ))
+       ;; default
+       (t (progn
+            (emmo-skip-whitespaces-forward nil)
+            (exchange-point-and-mark)
+            (emmo-skip-whitespaces-backward nil)
+            (exchange-point-and-mark)
+            ))
+       )
       )
      ;; beggining
      ((eq scope 'beg)
-      (emmo-skip-whitespaces-forward)
+      (emmo-skip-whitespaces-forward nil)
       (set-mark cur)
       (exchange-point-and-mark)
       )
      ;; end
      ((eq scope 'end)
       (exchange-point-and-mark)
-      (emmo-skip-whitespaces-backward)
+      (emmo-skip-whitespaces-backward nil)
       (exchange-point-and-mark)
       (goto-char cur)
       )
@@ -503,20 +539,26 @@ If N is not provided, mark the first parameter."
        (global-set-key (kbd (concat "C-c " action-char scope-char object-char))
                        (lambda (&optional n) (interactive "p") (unless n (setq n 1)) (emmo-act ,action ,scope ,object n))
                        )
-       (define-key read-only-keymap-mode-map (kbd (concat action-char scope-char object-char))
-                   (lambda (&optional n) (interactive "p") (unless n (setq n 1)) (emmo-act ,action ,scope ,object n))
-                   )
+       ;; (define-key read-only-keymap-mode-map (kbd (concat action-char scope-char object-char))
+       ;;             (lambda (&optional n) (interactive "p") (unless n (setq n 1)) (emmo-act ,action ,scope ,object n))
+       ;;             )
        )
      )
   )
 
+(macroexpand '(bind-em-action 'copy 'inside 'word))
+
+;; Define the key binding using the macro
 (defmacro emmo-define-act (action scope object)
   `(lambda (&optional n)
      (interactive "p")
      (unless n (setq n 1))
      (emmo-act ,action ,scope ,object n)))
 
-;; Define the key binding using the macro
+;; (defun emmo-copy-inside-word ()
+;;   (interactive)
+;;   (emmo-act 'copy 'inside 'word)
+;; )
 
 ; Set keybindings dynamically for each combination of action, scope, and object
 (defun emmo-init ()
