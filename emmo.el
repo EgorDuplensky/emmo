@@ -40,75 +40,7 @@
     )
   )
 
-(defun emmo-find-opening-char (char closing-char count)
-  (message "looking for %c or %c. count : %d" char closing-char count)
-  (let ((regexp (format "[%c%c]" char closing-char)))
-    (re-search-backward regexp nil t)
-    (setq matched-char (char-after (match-beginning 0)))
-    (if (eq matched-char closing-char)
-        (setq count (+ count 1))
-      (setq count (- count 1)))
-    (when (not (eq count 0))
-      (emmo-find-opening-char char closing-char count)
-      )
-    )
-  )
 
-(defun emmo-mark-around* (yank? search-forward-char)
-  "Works like vim's ci command. Takes a char, like ( or \" and
-kills the first ancestor semantic unit starting with that char."
-  (let* ((expand-region-fast-keys-enabled nil)
-         (expand-region-smart-cursor nil)
-         (char (or search-forward-char
-                   (read-char
-                    (if yank?
-                        "Yank around, starting with:"
-                      "Change around, starting with:"))))
-         (starting-point (point))
-         (closing-char (emmo-matching-pair-char char))
-         )
-    (emmo-find-opening-char char closing-char 1)
-    )
-  )
-
-(defun emmo-find-openining-round ()
-  (interactive)
-    (emmo-mark-around* nil ?\( )
-    )
-
-(defun mark-around* (yank? search-forward-char)
-  "Works like vim's ci command. Takes a char, like ( or \" and
-kills the first ancestor semantic unit starting with that char."
-  (let* ((expand-region-fast-keys-enabled nil)
-         (expand-region-smart-cursor nil)
-         (char (or search-forward-char
-                   (char-to-string
-                    (read-char
-                     (if yank?
-                         "Yank around, starting with:"
-                       "Change around, starting with:")))))
-         (q-char (regexp-quote char))
-         (starting-point (point)))
-    ;; (when search-forward-char
-    ;;   (search-forward char nil))
-    (cl-flet ((message (&rest args) nil))
-      (when (looking-at q-char)
-        (er/expand-region 1))
-      (while (and (not (= (point) (point-min)))
-                  (not (looking-at q-char)))
-        (er/expand-region 1))
-      (if (not (looking-at q-char))
-          (if search-forward-char
-              (error "Couldn't find any expansion starting with %S" char)
-            (goto-char starting-point)
-            (setq mark-active nil)
-            (change-around* yank? char))
-        (if yank?
-            (progn
-              (copy-region-as-kill (region-beginning) (region-end))
-              (ci--flash-region (region-beginning) (region-end))
-              (goto-char starting-point))
-          (select-region-between-points (region-beginning) (region-end)))))))
 
 (defun copy-to-char (arg char &optional interactive)
   "Kill up to and including ARGth occurrence of CHAR.
@@ -131,7 +63,7 @@ is an upper-case character."
                             case-fold-search)))
     (let ((beg (point)))
       (kill-ring-save (point) (search-forward (char-to-string char) nil nil arg))
-      (my/flash-region beg (point))
+      (emmo-flash-region beg (point))
       (goto-char beg))
     ))
 
@@ -159,7 +91,7 @@ is an upper-case character."
 		                    (search-forward (char-to-string char) nil nil arg)
 		                  (backward-char direction))
 		                (point)))
-      (my/flash-region beg (point))
+      (emmo-flash-region beg (point))
       (goto-char beg)
       )
     ))
@@ -167,179 +99,7 @@ is an upper-case character."
 (defalias 'kill-up-to-char 'zap-up-to-char)
 (defalias 'kill-to-char 'zap-to-char)
 
-(defun emmo-mark-around-whitespace ()
-  (interactive)
-  (let ((bounds (bounds-of-thing-at-point 'whitespace)))
-    (when bounds
-      (select-region-between-points (car bounds) (cdr bounds))
-      )
-    )
-  )
 
-;; todo: currenly marks inside word
-(defun emmo-mark-around-word (&optional n)
-  "Mark the around word at the current point."
-  (interactive)
-  (unless n (setq n 1))
-  (let ((bounds (bounds-of-thing-at-point 'word)))
-    (when bounds
-      (goto-char (car bounds))
-      (emmo-skip-whitespaces-backward nil)
-      ;; (forward-word)
-      (let ((beg (point)))
-        (forward-word n)
-        (select-region-between-points beg (point))
-        )
-      )
-    )
-  )
-
-(defun emmo-mark-around-symbol (&optional n)
-  "Mark the around symbol at the current point."
-  (interactive)
-  (let ((bounds (bounds-of-thing-at-point 'symbol)))
-    (when bounds
-      (goto-char (car bounds))
-      (emmo-skip-whitespaces-backward nil)
-      (let ((beg (point)))
-        (forward-symbol n)
-        (select-region-between-points beg (point))
-        )
-      )
-    )
-  )
-
-(defun emmo-mark-around-line (&optional n)
-  (interactive)
-  (let ((bounds (bounds-of-thing-at-point 'line)))
-    (when bounds
-      (goto-char (car bounds))
-      (let ((beg (point)))
-        (forward-line n)
-        (select-region-between-points beg (point))
-        )
-      )
-    )
-  )
-
-(defun emmo-mark-around-paragraph (&optional n)
-  "Mark around paragraph at point N times."
-  (interactive "p")
-  (mark-paragraph n)
-  )
-
-(defun emmo-mark-around-round-bracket (&optional n)
-  "Mark the text inside (including) round brackets at point N times."
-  (interactive)
-  (mark-around* nil "(")
-  )
-
-(defun emmo-mark-around-square-bracket (&optional n)
-  "Kill the function at point."
-  (interactive)
-  (mark-around* nil "[")
-  )
-
-(defun emmo-mark-around-curly-bracket (&optional n)
-  "Kill the function at point."
-  (interactive)
-  (mark-around* nil "{")
-  )
-
-(defun emmo-mark-around-angle-bracket (&optional n)
-  "Kill the function at point."
-  (interactive)
-  (mark-around* nil "<")
-  )
-
-(defun emmo-mark-around-single-quote (&optional n)
-  "Kill the function at point."
-  (interactive)
-  (mark-around* nil "-")
-  )
-
-(defun emmo-mark-around-double-quote (&optional n)
-  "Kill the function at point."
-  (interactive)
-  (mark-around* nil "\"")
-  )
-
-(defun emmo-mark-around-function (&optional n)
-  "Kill the function at point."
-  (interactive)
-  (mark-defun)
-  )
-
-(defun emmo-mark-around-buffer (&optional n)
-  "Kill the function at point."
-  (interactive)
-  (mark-whole-buffer)
-  )
-
-(defun emmo-mark-if-statement (&optional n)
-  (interactive)
-  (treesit-parser-create 'cpp)
-  (let* ((node (treesit-node-at (point)))
-         (if-node (treesit-parent-until node
-                                        (lambda (&optional n)
-                                          (equal (treesit-node-type n) "if_statement")))))
-    (if if-node
-        (progn
-          (goto-char (treesit-node-start if-node))
-          (set-mark (treesit-node-end if-node))
-          (message "If statement marked."))
-      (message "Not on an if statement."))))
-
-(defun emmo-mark-inside-argument (&optional n)
-  "Mark the N-th function parameter_declaration.
-Under the cursor using the Tree-sitter library.
-If N is not provided, mark the first parameter."
-  (interactive "p")
-  (treesit-parser-create 'cpp)
-  (let* ((node (treesit-node-at (point)))
-         (parameter-node nil)
-         (func-node nil)
-         (argument-nodes '()))
-
-    ;; Check if already inside a parameter declaration
-    (setq parameter-node (treesit-parent-until node
-                                               (lambda (&optional a-node)
-                                                 (equal (treesit-node-type a-node) "parameter_declaration"))))
-
-    ;; If a `parameter_declaration` node is found, mark this node and exit
-    (if parameter-node
-        (progn
-          (goto-char (treesit-node-start parameter-node))
-          (set-mark (treesit-node-end parameter-node)))
-      ;; Find the encompassing function node
-      (setq func-node (treesit-parent-until node
-                                            (lambda (&optional a-node)
-                                              (member (treesit-node-type a-node)
-                                                      '("function_definition" "function_declaration" "method_definition")))))
-
-      ;; Recursive function to collect parameter_declaration nodes
-      (defun collect-argument-nodes (node)
-        "Recursively collect all parameter_declaration nodes."
-        (when (member (treesit-node-type node) '("parameter_declaration"))
-          (push node argument-nodes))
-        (mapcar #'collect-argument-nodes (treesit-node-children node)))
-
-      ;; Collect all parameter_declaration nodes within function node context
-      (when func-node
-        (collect-argument-nodes func-node)
-        (setq argument-nodes (reverse argument-nodes)))  ; Reverse to maintain order
-
-      ;; Mark the N-th argument node if it exists
-      (let ((argument-node (nth (1- n) argument-nodes)))  ; 1-indexed to 0-indexed
-        (if argument-node
-            (progn
-              (goto-char (treesit-node-start argument-node))
-              (set-mark (treesit-node-end argument-node))
-              (message "Marked parameter %d." n))
-          (message "Parameter %d not found." n)))
-      )
-    )
-  )
 
 (defgroup emmo-emotions nil
   "Display informations of the current line."
@@ -398,10 +158,6 @@ If N is not provided, mark the first parameter."
     (overlay-put overlay 'priority 100)
     (run-with-timer 0.1 nil 'delete-overlay overlay)))
 
-(defun emmo-kill-ring-flash-save (beg end)
-  (kill-ring-save (point) (mark))
-  (emmo-flash-region (point) (mark))
-  )
 
 (defun emmo-matching-pair-char (char)
   (cond
@@ -419,17 +175,7 @@ If N is not provided, mark the first parameter."
    )
   )
 
-(defun emmo-mark-around-object (object &optional n)
-  "Call the appropriate function based on the value of OBJECT."
-  (interactive
-   (list (completing-read "Select object type: "
-                          '("word" "line" "paragraph" "function" "round-bracket" "square-bracket" "curly-bracket" "angle-bracket" "single-quote" "double-quote"))))
-  (let ((func-name (intern (concat "emmo-mark-around-" (symbol-name object)))))
-    (if (fboundp func-name)
-        (funcall func-name n)
-      (error "Undefined funtion: %s" (concat "emmo-mark-around-" (symbol-name object))))))
-
-;; New bounds-finding functions that return (beg . end) without marking
+;; Bounds-finding functions that return (beg . end) without marking
 (defun emmo-find-whitespace-bounds (&optional n)
   "Find boundaries of whitespace at point."
   (bounds-of-thing-at-point 'whitespace))
