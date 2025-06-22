@@ -118,6 +118,7 @@ is an upper-case character."
     (indent    . "i")
     (go        . "g")
     (surround  . "s")
+    (backup    . "b")
     )
   "Alist mapping each action to its corresponding character key.")
 
@@ -163,8 +164,8 @@ is an upper-case character."
   (cond
    ((eq char ?{) ?})
    ((eq char ?}) ?{)
-   ((eq char ?[) ?])
-   ((eq char ?]) ?[)
+   ((eq char ?\[) ?\])
+   ((eq char ?\]) ?\[)
    ((eq char ?\() ?\))
    ((eq char ?\)) ?\()
    ((eq char ?<) ?>)
@@ -296,14 +297,8 @@ OBJECT is the text object type, STARTING-POINT is the original cursor position."
           (cond
            ;; For delimited objects (brackets, quotes), skip whitespace but stay inside delimiters
            ((member object '(round-bracket square-bracket curly-bracket angle-bracket single-quote double-quote))
-            (goto-char beg)
-            (forward-char 1) ; Move past opening delimiter
-            (emmo-skip-whitespaces-forward t)
-            (let ((new-beg (point)))
-              (goto-char end)
-              (backward-char 1) ; Move before closing delimiter
-              (emmo-skip-whitespaces-backward t)
-              (cons new-beg (point))))
+            (cons (+ beg 1) (- end 1))
+            )
            ;; For other objects, skip whitespace completely
            (t
             (goto-char beg)
@@ -373,6 +368,14 @@ BOUNDS is a cons cell (beg . end), STARTING-POINT is the original cursor positio
             (goto-char beg)
             (insert-char char))
           (goto-char (+ starting-point 1))))
+       ;; backup - comment original and duplicate below
+       ((eq action 'backup)
+        (let ((text (buffer-substring beg end)))
+          (goto-char end)
+          (insert text)
+          (goto-char starting-point)
+          (comment-region beg end)
+          ))
        ;; mark - just select the region
        ((eq action 'mark)
         (goto-char beg)
@@ -469,6 +472,9 @@ This is the main entry point for emmo operations."
   ;; (global-set-key (kbd "C-c i b") (emmo-define-act 'indent 'around 'buffer))
   (global-set-key (kbd "C-c x x") 'duplicate-dwim)
   (global-set-key (kbd "C-c x p") (emmo-define-act 'duplicate 'around 'paragraph))
+  (global-set-key (kbd "C-c b l") (emmo-define-act 'backup 'around 'line))
+  (global-set-key (kbd "C-c b p") (emmo-define-act 'backup 'around 'paragraph))
+  (global-set-key (kbd "C-c b d") (emmo-define-act 'backup 'around 'function))
   )
 
 (provide 'emmo)
