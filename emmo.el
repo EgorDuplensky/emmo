@@ -108,6 +108,7 @@ is an upper-case character."
     (go        . "g")
     (surround  . "s")
     (backup    . "b")
+    (resurround . "S")
     )
   "Alist mapping each action to its corresponding character key.")
 
@@ -339,7 +340,8 @@ BOUNDS is a cons cell (beg . end), STARTING-POINT is the original cursor positio
           (goto-char starting-point)))
        ;; comment - toggle comments on region
        ((eq action 'comment)
-        (comment-or-uncomment-region beg end))
+        (comment-or-uncomment-region beg end)
+        (goto-char starting-point))
        ;; indent - fix indentation
        ((eq action 'indent)
         (indent-region beg end)
@@ -365,6 +367,19 @@ BOUNDS is a cons cell (beg . end), STARTING-POINT is the original cursor positio
           (goto-char starting-point)
           (comment-region beg end)
           ))
+       ;; resurround - change surrounding delimiters
+       ((eq action 'resurround)
+        (let ((char (read-char)))
+          (save-excursion
+            ;; Replace closing delimiter
+            (goto-char (1- end))
+            (delete-char 1)
+            (insert-char (emmo-matching-pair-char char))
+            ;; Replace opening delimiter
+            (goto-char beg)
+            (delete-char 1)
+            (insert-char char))
+          (goto-char starting-point)))
        ;; mark - just select the region
        ((eq action 'mark)
         (goto-char beg)
@@ -381,6 +396,8 @@ This is the main entry point for emmo operations."
          (bounds (emmo-find-object-bounds object n))
          ;; Step 2: Apply scope modifications to the bounds
          (scoped-bounds (emmo-apply-scope-to-bounds bounds scope object starting-point)))
+    ;; Ensure no region is active from bounds finding before executing action
+    (deactivate-mark)
     ;; Step 3: Execute the requested action on the final bounds
     (emmo-execute-action-on-bounds action scoped-bounds starting-point current-line)))
 
