@@ -89,8 +89,8 @@ kills the first ancestor semantic unit starting with that char."
                        "Change around, starting with:")))))
          (q-char (regexp-quote char))
          (starting-point (point)))
-    (when search-forward-char
-      (search-forward char nil))
+    ;; (when search-forward-char
+    ;;   (search-forward char nil))
     (cl-flet ((message (&rest args) nil))
       (when (looking-at q-char)
         (er/expand-region 1))
@@ -594,6 +594,8 @@ If N is not provided, mark the first parameter."
   (global-set-key (kbd "C-c c c") (emmo-define-act 'comment 'inside 'paragraph))
   (global-set-key (kbd "C-c i p") (emmo-define-act 'indent 'inside 'paragraph))
   (global-set-key (kbd "C-c i f") (emmo-define-act 'indent 'inside 'function))
+  (global-set-key (kbd "C-c s s") (emmo-define-act 'surround 'inside 'symbol))
+  (global-set-key (kbd "C-c s w") (emmo-define-act 'surround 'inside 'word))
   ;; (global-set-key (kbd "C-c i b") (emmo-define-act 'indent 'around 'buffer))
   (global-set-key (kbd "C-c x x") 'duplicate-dwim)
   (global-set-key (kbd "C-c x p") (emmo-define-act 'duplicate 'around 'paragraph))
