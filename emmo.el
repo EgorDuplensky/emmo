@@ -368,7 +368,7 @@ If N is not provided, mark the first parameter."
     (paragraph      . "p")
     (argument       . "a")
     (function       . "d") ;; defun
-    (white-space    . "SPC")
+    (whitespace    . "SPC")
     ;;(till         . "t")
     ;;(find         . "f")
     ;;(till-backward . "T")
@@ -429,92 +429,222 @@ If N is not provided, mark the first parameter."
         (funcall func-name n)
       (error "Undefined funtion: %s" (concat "emmo-mark-around-" (symbol-name object))))))
 
-(defun emmo-apply-scope (scope object starting-point)
-  "Apply the specified SCOPE to the selected region for OBJECT from STARTING-POINT."
-  (cond
-   ;; inside - exclude surrounding whitespace
-   ((eq scope 'inside)
-    (cond
-     ;; For delimited objects (brackets, quotes), skip whitespace but stay inside
-     ((member object '(round-bracket square-bracket curly-bracket angle-bracket single-quote double-quote))
-      (emmo-skip-whitespaces-forward t)
-      (exchange-point-and-mark)
-      (emmo-skip-whitespaces-backward t)
-      (exchange-point-and-mark))
-     ;; For other objects, skip whitespace completely
-     (t
-      (emmo-skip-whitespaces-forward nil)
-      (exchange-point-and-mark)
-      (emmo-skip-whitespaces-backward nil)
-      (exchange-point-and-mark))))
-   ;; beginning - from start of object to cursor
-   ((eq scope 'beg)
-    (emmo-skip-whitespaces-forward nil)
-    (set-mark starting-point)
-    (exchange-point-and-mark))
-   ;; end - from cursor to end of object
-   ((eq scope 'end)
-    (exchange-point-and-mark)
-    (emmo-skip-whitespaces-backward nil)
-    (exchange-point-and-mark)
-    (goto-char starting-point))
-   ;; around - include everything (no changes needed)
-   ((eq scope 'around) t)))
+;; New bounds-finding functions that return (beg . end) without marking
+(defun emmo-find-whitespace-bounds (&optional n)
+  "Find boundaries of whitespace at point."
+  (bounds-of-thing-at-point 'whitespace))
 
-(defun emmo-execute-action (action starting-point current-line)
-  "Execute the specified ACTION on the current region."
-  (cond
-   ;; copy - save to kill ring and flash, return to original position
-   ((eq action 'copy)
-    (emmo-kill-ring-flash-save (point) (mark))
-    (goto-char starting-point))
-   ;; delete - remove text without saving
-   ((eq action 'delete)
-    (delete-region (point) (mark)))
-   ;; kill - cut text to kill ring
-   ((eq action 'kill)
-    (kill-region (point) (mark)))
-   ;; duplicate - copy and paste at current location
-   ((eq action 'duplicate)
-    (exchange-point-and-mark)
-    (duplicate-dwim)
-    (deactivate-mark))
-   ;; comment - toggle comments on region
-   ((eq action 'comment)
-    (comment-or-uncomment-region-or-line))
-   ;; indent - fix indentation
-   ((eq action 'indent)
-    (indent-region (point) (mark))
-    (goto-line current-line)
-    (indent-for-tab-command))
-   ;; go - move cursor to other end of selection
-   ((eq action 'go)
-    (exchange-point-and-mark)
-    (keyboard-escape-quit))
-   ;; surround - wrap text with matching delimiters
-   ((eq action 'surround)
-    (let ((mark-point (mark)))
-      (keyboard-escape-quit)
-      (let ((char (read-char)))
-        (insert-char char)
-        (goto-char (+ mark-point 1))
-        (insert-char (emmo-matching-pair-char char))
-        (goto-char (+ starting-point 1)))))
-   ;; mark - just select the region (no action needed)
-   ((eq action 'mark) t)))
+(defun emmo-find-word-bounds (&optional n)
+  "Find boundaries of N words starting at point."
+  (unless n (setq n 1))
+  (let ((bounds (bounds-of-thing-at-point 'word)))
+    (when bounds
+      (save-excursion
+        (goto-char (car bounds))
+        (let ((start (progn (emmo-skip-whitespaces-backward nil) (point)))
+              (end (progn (forward-word n) (point))))
+          (cons start end))))))
+
+(defun emmo-find-symbol-bounds (&optional n)
+  "Find boundaries of N symbols starting at point."
+  (unless n (setq n 1))
+  (let ((bounds (bounds-of-thing-at-point 'symbol)))
+    (when bounds
+      (save-excursion
+        (goto-char (car bounds))
+        (let ((start (progn (emmo-skip-whitespaces-backward nil) (point)))
+              (end (progn (forward-symbol n) (point))))
+          (cons start end))))))
+
+(defun emmo-find-line-bounds (&optional n)
+  "Find boundaries of N lines starting at current line."
+  (unless n (setq n 1))
+  (save-excursion
+    (let ((start (progn (beginning-of-line) (point)))
+          (end (progn (forward-line n) (point))))
+      (cons start end))))
+
+(defun emmo-find-paragraph-bounds (&optional n)
+  "Find boundaries of paragraph at point."
+  (unless n (setq n 1))
+  (save-excursion
+    (let ((start (progn (backward-paragraph) (point)))
+          (end (progn (forward-paragraph n) (point))))
+      (cons start end))))
+
+(defun emmo-find-function-bounds (&optional n)
+  "Find boundaries of function definition at point."
+  (save-excursion
+    (let ((start (progn (beginning-of-defun) (point)))
+          (end (progn (end-of-defun) (point))))
+      (cons start end))))
+
+(defun emmo-find-buffer-bounds (&optional n)
+  "Find boundaries of entire buffer."
+  (cons (point-min) (point-max)))
+
+(defun emmo-find-bracket-bounds (open-char close-char)
+  "Find boundaries of text inside matching brackets."
+  (save-excursion
+    (let ((start-pos (point)))
+      ;; Try to find the opening bracket by using expand-region logic
+      (condition-case nil
+          (let ((expand-region-fast-keys-enabled nil)
+                (expand-region-smart-cursor nil))
+            (cl-flet ((message (&rest args) nil))
+              ;; Look for the opening character
+              (while (and (not (= (point) (point-min)))
+                         (not (looking-at (regexp-quote (char-to-string open-char)))))
+                (er/expand-region 1))
+              (if (looking-at (regexp-quote (char-to-string open-char)))
+                  (cons (region-beginning) (region-end))
+                ;; If not found, try searching forward
+                (goto-char start-pos)
+                (when (search-forward (char-to-string open-char) nil t)
+                  (er/expand-region 1)
+                  (cons (region-beginning) (region-end))))))
+        (error nil)))))
+
+(defun emmo-find-round-bracket-bounds (&optional n)
+  "Find boundaries of text inside round brackets."
+  (emmo-find-bracket-bounds ?\( ?\)))
+
+(defun emmo-find-square-bracket-bounds (&optional n)
+  "Find boundaries of text inside square brackets."
+  (emmo-find-bracket-bounds ?\[ ?\]))
+
+(defun emmo-find-curly-bracket-bounds (&optional n)
+  "Find boundaries of text inside curly brackets."
+  (emmo-find-bracket-bounds ?\{ ?\}))
+
+(defun emmo-find-angle-bracket-bounds (&optional n)
+  "Find boundaries of text inside angle brackets."
+  (emmo-find-bracket-bounds ?\< ?\>))
+
+(defun emmo-find-single-quote-bounds (&optional n)
+  "Find boundaries of text inside single quotes."
+  (emmo-find-bracket-bounds ?\' ?\'))
+
+(defun emmo-find-double-quote-bounds (&optional n)
+  "Find boundaries of text inside double quotes."
+  (emmo-find-bracket-bounds ?\" ?\"))
+
+(defun emmo-find-object-bounds (object &optional n)
+  "Find boundaries for the specified OBJECT, returning (beg . end) or nil."
+  (let ((func-name (intern (concat "emmo-find-" (symbol-name object) "-bounds"))))
+    (if (fboundp func-name)
+        (funcall func-name n)
+      (error "Undefined function: %s" func-name))))
+
+(defun emmo-apply-scope-to-bounds (bounds scope object starting-point)
+  "Apply SCOPE modifications to BOUNDS, returning adjusted (beg . end).
+BOUNDS is a cons cell (beg . end), SCOPE is the scope type,
+OBJECT is the text object type, STARTING-POINT is the original cursor position."
+  (when bounds
+    (let ((beg (car bounds))
+          (end (cdr bounds)))
+      (cond
+       ;; inside - exclude surrounding whitespace
+       ((eq scope 'inside)
+        (save-excursion
+          (cond
+           ;; For delimited objects (brackets, quotes), skip whitespace but stay inside delimiters
+           ((member object '(round-bracket square-bracket curly-bracket angle-bracket single-quote double-quote))
+            (goto-char beg)
+            (forward-char 1) ; Move past opening delimiter
+            (emmo-skip-whitespaces-forward t)
+            (let ((new-beg (point)))
+              (goto-char end)
+              (backward-char 1) ; Move before closing delimiter
+              (emmo-skip-whitespaces-backward t)
+              (cons new-beg (point))))
+           ;; For other objects, skip whitespace completely
+           (t
+            (goto-char beg)
+            (emmo-skip-whitespaces-forward nil)
+            (let ((new-beg (point)))
+              (goto-char end)
+              (emmo-skip-whitespaces-backward nil)
+              (cons new-beg (point)))))))
+       ;; beginning - from start of object to cursor
+       ((eq scope 'beg)
+        (save-excursion
+          (goto-char beg)
+          (emmo-skip-whitespaces-forward nil)
+          (cons (point) starting-point)))
+       ;; end - from cursor to end of object
+       ((eq scope 'end)
+        (save-excursion
+          (goto-char end)
+          (emmo-skip-whitespaces-backward nil)
+          (cons starting-point (point))))
+       ;; around - include everything (return bounds as-is)
+       ((eq scope 'around) bounds)
+       ;; default - return original bounds
+       (t bounds)))))
+
+(defun emmo-execute-action-on-bounds (action bounds starting-point current-line)
+  "Execute the specified ACTION on the region defined by BOUNDS.
+BOUNDS is a cons cell (beg . end), STARTING-POINT is the original cursor position."
+  (when bounds
+    (let ((beg (car bounds))
+          (end (cdr bounds)))
+      (cond
+       ;; copy - save to kill ring and flash, return to original position
+       ((eq action 'copy)
+        (kill-ring-save beg end)
+        (emmo-flash-region beg end)
+        (goto-char starting-point))
+       ;; delete - remove text without saving
+       ((eq action 'delete)
+        (delete-region beg end))
+       ;; kill - cut text to kill ring
+       ((eq action 'kill)
+        (kill-region beg end))
+       ;; duplicate - copy and paste at current location
+       ((eq action 'duplicate)
+        (let ((text (buffer-substring beg end)))
+          (goto-char end)
+          (insert text)
+          (goto-char starting-point)))
+       ;; comment - toggle comments on region
+       ((eq action 'comment)
+        (comment-or-uncomment-region beg end))
+       ;; indent - fix indentation
+       ((eq action 'indent)
+        (indent-region beg end)
+        (goto-line current-line)
+        (indent-for-tab-command))
+       ;; go - move cursor to other end of selection
+       ((eq action 'go)
+        (goto-char (if (= (point) beg) end beg)))
+       ;; surround - wrap text with matching delimiters
+       ((eq action 'surround)
+        (let ((char (read-char)))
+          (save-excursion
+            (goto-char end)
+            (insert-char (emmo-matching-pair-char char))
+            (goto-char beg)
+            (insert-char char))
+          (goto-char (+ starting-point 1))))
+       ;; mark - just select the region
+       ((eq action 'mark)
+        (goto-char beg)
+        (push-mark end nil t)
+        (setq mark-active t))))))
 
 (defun emmo-act (action scope object &optional n)
   "Perform ACTION with SCOPE on OBJECT, optionally N times.
 This is the main entry point for emmo operations."
   (interactive "p")
-  (let ((starting-point (point))
-        (current-line (line-number-at-pos)))
-    ;; Step 1: Select the text object
-    (emmo-mark-around-object object n)
-    ;; Step 2: Apply scope modifications to the selection
-    (emmo-apply-scope scope object starting-point)
-    ;; Step 3: Execute the requested action
-    (emmo-execute-action action starting-point current-line)))
+  (let* ((starting-point (point))
+         (current-line (line-number-at-pos))
+         ;; Step 1: Find the text object boundaries
+         (bounds (emmo-find-object-bounds object n))
+         ;; Step 2: Apply scope modifications to the bounds
+         (scoped-bounds (emmo-apply-scope-to-bounds bounds scope object starting-point)))
+    ;; Step 3: Execute the requested action on the final bounds
+    (emmo-execute-action-on-bounds action scoped-bounds starting-point current-line)))
 
 (defvar read-only-keymap-mode-map (make-sparse-keymap))
 
