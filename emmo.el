@@ -429,98 +429,92 @@ If N is not provided, mark the first parameter."
         (funcall func-name n)
       (error "Undefined funtion: %s" (concat "emmo-mark-around-" (symbol-name object))))))
 
-(defun emmo-act (action scope object &optional n)
-  (interactive "p")
-  (let ((cur (point))
-        (current-line (line-number-at-pos)))
-    (emmo-mark-around-object object n)
+(defun emmo-apply-scope (scope object starting-point)
+  "Apply the specified SCOPE to the selected region for OBJECT from STARTING-POINT."
+  (cond
+   ;; inside - exclude surrounding whitespace
+   ((eq scope 'inside)
     (cond
-     ;; inside
-     ((eq scope 'inside)
-      (cond
-       ;; ((member object '(word symbol))
-       ;;  ;; do nothing for now, word and symbol need special processing
-       ;;  (ignore))
-       ((member object '(round-bracket square-bracket curly-bracket angle-bracket single-quote double-quote))
-        ;; do nothing for now, word and symbol need special processing
-        (progn
-          (emmo-skip-whitespaces-forward t)
-          (exchange-point-and-mark)
-          (emmo-skip-whitespaces-backward t)
-          (exchange-point-and-mark)
-          ))
-       ;; default
-       (t (progn
-            (emmo-skip-whitespaces-forward nil)
-            (exchange-point-and-mark)
-            (emmo-skip-whitespaces-backward nil)
-            (exchange-point-and-mark)
-            ))
-       )
-      )
-     ;; beggining
-     ((eq scope 'beg)
-      (emmo-skip-whitespaces-forward nil)
-      (set-mark cur)
+     ;; For delimited objects (brackets, quotes), skip whitespace but stay inside
+     ((member object '(round-bracket square-bracket curly-bracket angle-bracket single-quote double-quote))
+      (emmo-skip-whitespaces-forward t)
       (exchange-point-and-mark)
-      )
-     ;; end
-     ((eq scope 'end)
+      (emmo-skip-whitespaces-backward t)
+      (exchange-point-and-mark))
+     ;; For other objects, skip whitespace completely
+     (t
+      (emmo-skip-whitespaces-forward nil)
       (exchange-point-and-mark)
       (emmo-skip-whitespaces-backward nil)
-      (exchange-point-and-mark)
-      (goto-char cur)
-      )
-     ;; around
-     ((eq scope 'around) t)
-     )
-    (cond
-     ;; copy
-     ((eq action 'copy)
-      (emmo-kill-ring-flash-save (point) (mark))
-      (goto-char cur))
-     ;; delete
-     ((eq action 'delete)
-      (delete-region (point) (mark)))
-     ;; kill
-     ((eq action 'kill)
-      (kill-region (point) (mark)))
-     ;; duplicate / xerox
-     ((eq action 'duplicate)
-      (exchange-point-and-mark)
-      (duplicate-dwim)
-      (deactivate-mark)
-      )
-     ;; comment
-     ((eq action 'comment)
-      (comment-or-uncomment-region-or-line))
-     ;; indent
-     ((eq action 'indent)
-      (indent-region (point) (mark))
-      (goto-line current-line)
-      (indent-for-tab-command)
-      )
-     ;; go
-     ((eq action 'go)
-      (exchange-point-and-mark)
+      (exchange-point-and-mark))))
+   ;; beginning - from start of object to cursor
+   ((eq scope 'beg)
+    (emmo-skip-whitespaces-forward nil)
+    (set-mark starting-point)
+    (exchange-point-and-mark))
+   ;; end - from cursor to end of object
+   ((eq scope 'end)
+    (exchange-point-and-mark)
+    (emmo-skip-whitespaces-backward nil)
+    (exchange-point-and-mark)
+    (goto-char starting-point))
+   ;; around - include everything (no changes needed)
+   ((eq scope 'around) t)))
+
+(defun emmo-execute-action (action starting-point current-line)
+  "Execute the specified ACTION on the current region."
+  (cond
+   ;; copy - save to kill ring and flash, return to original position
+   ((eq action 'copy)
+    (emmo-kill-ring-flash-save (point) (mark))
+    (goto-char starting-point))
+   ;; delete - remove text without saving
+   ((eq action 'delete)
+    (delete-region (point) (mark)))
+   ;; kill - cut text to kill ring
+   ((eq action 'kill)
+    (kill-region (point) (mark)))
+   ;; duplicate - copy and paste at current location
+   ((eq action 'duplicate)
+    (exchange-point-and-mark)
+    (duplicate-dwim)
+    (deactivate-mark))
+   ;; comment - toggle comments on region
+   ((eq action 'comment)
+    (comment-or-uncomment-region-or-line))
+   ;; indent - fix indentation
+   ((eq action 'indent)
+    (indent-region (point) (mark))
+    (goto-line current-line)
+    (indent-for-tab-command))
+   ;; go - move cursor to other end of selection
+   ((eq action 'go)
+    (exchange-point-and-mark)
+    (keyboard-escape-quit))
+   ;; surround - wrap text with matching delimiters
+   ((eq action 'surround)
+    (let ((mark-point (mark)))
       (keyboard-escape-quit)
-      )
-     ;; surround
-     ((eq action 'surround)
-      (let ((mark-point (mark)))
-        (keyboard-escape-quit)
-        (let ((char (read-char)))
-          (insert-char char)
-          (goto-char (+ mark-point 1))
-          (insert-char (emmo-matching-pair-char char))
-          (goto-char (+ cur 1))
-          ))
-      )
-     ;; mark
-     ((eq action 'mark) t)
-     )
-    )
-  )
+      (let ((char (read-char)))
+        (insert-char char)
+        (goto-char (+ mark-point 1))
+        (insert-char (emmo-matching-pair-char char))
+        (goto-char (+ starting-point 1)))))
+   ;; mark - just select the region (no action needed)
+   ((eq action 'mark) t)))
+
+(defun emmo-act (action scope object &optional n)
+  "Perform ACTION with SCOPE on OBJECT, optionally N times.
+This is the main entry point for emmo operations."
+  (interactive "p")
+  (let ((starting-point (point))
+        (current-line (line-number-at-pos)))
+    ;; Step 1: Select the text object
+    (emmo-mark-around-object object n)
+    ;; Step 2: Apply scope modifications to the selection
+    (emmo-apply-scope scope object starting-point)
+    ;; Step 3: Execute the requested action
+    (emmo-execute-action action starting-point current-line)))
 
 (defvar read-only-keymap-mode-map (make-sparse-keymap))
 
