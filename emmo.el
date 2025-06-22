@@ -13,13 +13,6 @@
 (require 'expand-region)
 (eval-when-compile (require 'cl-lib))
 
-(defun select-region-between-points (point1 point2)
-  "Select the region between POINT1 and POINT2."
-  (interactive "nEnter first point: \nnEnter second point: ")
-  (goto-char point1)
-  (push-mark point2 nil t)
-  (setq mark-active t))
-
 (defun emmo-skip-whitespaces-forward (stop-after &optional n)
   (interactive)
   "Search forward, but keep point at the beginning of the match."
@@ -39,8 +32,6 @@
       )
     )
   )
-
-
 
 (defun copy-to-char (arg char &optional interactive)
   "Kill up to and including ARGth occurrence of CHAR.
@@ -98,8 +89,6 @@ is an upper-case character."
 
 (defalias 'kill-up-to-char 'zap-up-to-char)
 (defalias 'kill-to-char 'zap-to-char)
-
-
 
 (defgroup emmo-emotions nil
   "Display informations of the current line."
@@ -241,7 +230,7 @@ is an upper-case character."
             (cl-flet ((message (&rest args) nil))
               ;; Look for the opening character
               (while (and (not (= (point) (point-min)))
-                         (not (looking-at (regexp-quote (char-to-string open-char)))))
+                          (not (looking-at (regexp-quote (char-to-string open-char)))))
                 (er/expand-region 1))
               (if (looking-at (regexp-quote (char-to-string open-char)))
                   (cons (region-beginning) (region-end))
@@ -412,9 +401,6 @@ This is the main entry point for emmo operations."
        (global-set-key (kbd (concat "C-c " action-char scope-char object-char))
                        (lambda (&optional n) (interactive "p") (unless n (setq n 1)) (emmo-act ,action ,scope ,object n))
                        )
-       ;; (define-key read-only-keymap-mode-map (kbd (concat action-char scope-char object-char))
-       ;;             (lambda (&optional n) (interactive "p") (unless n (setq n 1)) (emmo-act ,action ,scope ,object n))
-       ;;             )
        )
      )
   )
@@ -428,12 +414,7 @@ This is the main entry point for emmo operations."
      (unless n (setq n 1))
      (emmo-act ,action ,scope ,object n)))
 
-;; (defun emmo-copy-inside-word ()
-;;   (interactive)
-;;   (emmo-act 'copy 'inside 'word)
-;; )
-
-; Set keybindings dynamically for each combination of action, scope, and object
+;; Set keybindings dynamically for each combination of action, scope, and object
 (defun emmo-init ()
   (interactive)
   (dolist (action-entry emmo-actions-key-alist)
@@ -469,7 +450,6 @@ This is the main entry point for emmo operations."
   (global-set-key (kbd "C-c i f") (emmo-define-act 'indent 'inside 'function))
   (global-set-key (kbd "C-c s s") (emmo-define-act 'surround 'inside 'symbol))
   (global-set-key (kbd "C-c s w") (emmo-define-act 'surround 'inside 'word))
-  ;; (global-set-key (kbd "C-c i b") (emmo-define-act 'indent 'around 'buffer))
   (global-set-key (kbd "C-c x x") 'duplicate-dwim)
   (global-set-key (kbd "C-c x p") (emmo-define-act 'duplicate 'around 'paragraph))
   (global-set-key (kbd "C-c b l") (emmo-define-act 'backup 'around 'line))
